@@ -36,14 +36,14 @@ class APKInfo(SQLModel, table=True):
             return 0
 
 
-class SyncLog(SQLModel, table=True):
+class APKListsSyncLog(SQLModel, table=True):
     """Log of the last sync with AndroZoo listing database."""
 
     etag: str = Field(primary_key=True)
     time_synced: datetime = Field(default_factory=datetime.now)
 
 
-class APKLists:
+class APKListsDatabsae:
     """Sync with AndroZoo listing database."""
 
     LIST_URL: Final[str] = "https://androzoo.uni.lu/static/lists/latest.csv.gz"
@@ -66,18 +66,18 @@ class APKLists:
         try:
             with Session(self.engine) as session:
                 local_etag = session.exec(
-                    select(SyncLog).order_by(col(SyncLog.time_synced).desc())
+                    select(APKListsSyncLog).order_by(col(APKListsSyncLog.time_synced).desc())
                 ).first()
             if not local_etag:
                 return False
-            remote_etag = httpx.head(APKLists.LIST_URL).headers["etag"].strip('"')
+            remote_etag = httpx.head(APKListsDatabsae.LIST_URL).headers["etag"].strip('"')
             return local_etag.etag == remote_etag
         except Exception:
             return False
 
     def log_sync(self, etag: str) -> None:
         with Session(self.engine) as session:
-            sync_log = SyncLog(etag=etag)
+            sync_log = APKListsSyncLog(etag=etag)
             session.add(sync_log)
             session.commit()
         rich.print(f"[green]Sync log updated:[/green] {sync_log.etag} at {sync_log.time_synced}")
@@ -129,7 +129,7 @@ class APKLists:
             rich.print("[green]Already synced.[/green]")
             return
         segmented_download(
-            APKLists.LIST_URL,
+            APKListsDatabsae.LIST_URL,
             dest=self.dl_path,
             connections=40,
         )
@@ -139,7 +139,7 @@ class APKLists:
                 f_out.write(chunk)
 
         self.sync_with_csv()
-        self.log_sync(httpx.head(APKLists.LIST_URL).headers["etag"].strip('"'))
+        self.log_sync(httpx.head(APKListsDatabsae.LIST_URL).headers["etag"].strip('"'))
 
     def search(self, name: str) -> list[APKInfo]:
         """Search for a package name in the database."""
