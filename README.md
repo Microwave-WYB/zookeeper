@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-pip install zookeeper
+pip install git+https://github.com/Microwave-WYB/zookeeper.git
 ```
 
 ## Usage
