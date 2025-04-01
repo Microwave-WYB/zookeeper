@@ -1,0 +1,18 @@
+[project]
+name = "zookeeper"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Yibo Wei", email = "david_wyb2001@outlook.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "aiofiles>=24.1.0",
+    "httpx>=0.28.1",
+    "nbformat>=5.10.4",
+    "rich>=13.9.4",
+    "sqlmodel>=0.0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
