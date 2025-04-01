@@ -50,15 +50,14 @@ class APKLists:
 
     def __init__(
         self,
-        db_path: Path | str | None = None,
+        db_dsn: str | None = None,
         cache_dir: Path | str = Path("~/.cache/androzoo").expanduser(),
     ) -> None:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.dl_path = self.cache_dir / "latest.csv.gz"
         self.csv_path = self.cache_dir / "latest.csv"
-        self.db_path = db_path or self.cache_dir / "androzoo.db"
-        self.db_dsn = f"sqlite:///{self.db_path}"
+        self.db_dsn = db_dsn or "sqlite:///{self.cache_dir}/lists.db"
         self.engine = create_engine(self.db_dsn)
         SQLModel.metadata.create_all(self.engine, checkfirst=True)
 
