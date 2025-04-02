@@ -7,6 +7,7 @@ from typing import Final
 
 import httpx
 import rich
+from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 from sqlmodel import JSON, Field, Session, SQLModel, col, create_engine, select
 
 from zookeeper.download_utils import segmented_download
@@ -61,6 +62,25 @@ class MetadataSyncLog(SQLModel, table=True):
     time_synced: datetime = Field(default_factory=datetime.now)
 
 
+def estimate_gzfile_lines(filepath: Path, sample_size_mb=100):
+    # Read random chunks
+    with gzip.open(filepath, "rb") as f:
+        # Sample beginning of file
+        f.seek(0)
+        start_chunk = f.read(sample_size_mb * 1024 * 1024)
+        lines_in_start = start_chunk.count(b"\n")
+        decompressed_start_size = len(start_chunk)
+
+        # Get estimated decompressed size
+        f.seek(0, 2)  # End of file
+        decompressed_size = f.tell()
+
+        # Estimate based on ratio
+        estimated_lines = int(lines_in_start * (decompressed_size / decompressed_start_size))
+
+    return estimated_lines
+
+
 class MetadataDatabase:
     """Sync with Google Play metadata."""
 
@@ -107,12 +127,17 @@ class MetadataDatabase:
 
     def sync_with_jsonl(self):
         """Sync with the JSONL file from AndroZoo."""
-        with Session(self.engine) as session:
-            with gzip.open(self.dl_path, "r") as f:
-                for lines in batched(f, 1000):
-                    metadata_objs = [GPMetadata.from_json(line.decode("utf-8")) for line in lines]
-                    session.add_all(metadata_objs)
-                    print(len(lines), end="\r", flush=True)
+        with Session(self.engine) as session, gzip.open(self.dl_path, "rb") as f, Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeRemainingColumn(),
+            refresh_per_second=1,
+        ) as pbar:
+            task = pbar.add_task("Processing JSONL file", total=estimate_gzfile_lines(self.dl_path))
+            for lines in batched(f, 1000):
+                metadata_objs = [GPMetadata.from_json(line.decode("utf-8")) for line in lines]
+                session.add_all(metadata_objs)
+                pbar.update(task, advance=len(lines))
             session.commit()
 
     def sync(self, force: bool = False) -> None:
