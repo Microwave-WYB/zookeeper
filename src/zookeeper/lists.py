@@ -43,7 +43,7 @@ class APKListsSyncLog(SQLModel, table=True):
     time_synced: datetime = Field(default_factory=datetime.now)
 
 
-class APKListsDatabsae:
+class ListsDatabase:
     """Sync with AndroZoo listing database."""
 
     LIST_URL: Final[str] = "https://androzoo.uni.lu/static/lists/latest.csv.gz"
@@ -70,7 +70,7 @@ class APKListsDatabsae:
                 ).first()
             if not local_etag:
                 return False
-            remote_etag = httpx.head(APKListsDatabsae.LIST_URL).headers["etag"].strip('"')
+            remote_etag = httpx.head(ListsDatabase.LIST_URL).headers["etag"].strip('"')
             return local_etag.etag == remote_etag
         except Exception:
             return False
@@ -129,7 +129,7 @@ class APKListsDatabsae:
             rich.print("[green]Already synced.[/green]")
             return
         segmented_download(
-            APKListsDatabsae.LIST_URL,
+            ListsDatabase.LIST_URL,
             dest=self.dl_path,
             connections=40,
         )
@@ -139,7 +139,7 @@ class APKListsDatabsae:
                 f_out.write(chunk)
 
         self.sync_with_csv()
-        self.log_sync(httpx.head(APKListsDatabsae.LIST_URL).headers["etag"].strip('"'))
+        self.log_sync(httpx.head(ListsDatabase.LIST_URL).headers["etag"].strip('"'))
 
     def search(self, name: str) -> list[APKInfo]:
         """Search for a package name in the database."""

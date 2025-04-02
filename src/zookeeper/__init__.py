@@ -1,10 +1,10 @@
 from zookeeper.downloader import APKDownloader, DownloadJob
 from zookeeper.gpmetadata import GPMetadata, MetadataDatabase
-from zookeeper.lists import APKInfo, APKListsDatabsae
+from zookeeper.lists import APKInfo, ListsDatabase
 
 __all__ = [
     "APKDownloader",
-    "APKListsDatabsae",
+    "ListsDatabase",
     "DownloadJob",
     "APKInfo",
     "GPMetadata",
