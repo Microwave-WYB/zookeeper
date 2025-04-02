@@ -84,7 +84,6 @@ class ListsDatabase:
 
     def sync_with_csv(self) -> None:
         def insert_apks(session: Session, rows: Iterable[dict[str, str]]) -> None:
-            # get a list of existing hashes where sha256 is in rows
             current_hashes = {row["sha256"] for row in rows}
             existing_hashes = {
                 row.sha256
@@ -148,3 +147,8 @@ class ListsDatabase:
                 select(APKInfo).where(col(APKInfo.pkg_name).ilike(f"%{name}%"))
             ).all()
         return list(results)
+
+    def get(self, hash: str) -> APKInfo | None:
+        """Get APKInfo by sha256 hash."""
+        with Session(self.engine) as session:
+            return session.get(APKInfo, hash.upper())
