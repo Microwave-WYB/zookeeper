@@ -61,7 +61,7 @@ function* queryRows(db: Database, opts: QueryOpts): Iterable<{ sha256: string }>
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = opts.limit ? `LIMIT ${opts.limit}` : "";
   const sql = `SELECT a.sha256 FROM apks a ${where} ${limit}`;
-  for (const row of db.prepare(sql).all(...params) as { sha256: string }[]) { yield row; }
+  for (const row of db.prepare(sql).iterate(...params) as Iterable<{ sha256: string }>) { yield row; }
 }
 
 const syncCommand = defineCommand({

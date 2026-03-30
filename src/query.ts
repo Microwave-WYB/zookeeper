@@ -86,8 +86,7 @@ export function query(opts: QueryOpts): void {
   }
 
   const stmt = db.prepare(sql);
-  // Use .all() and write JSONL to stdout
-  for (const row of stmt.all(...params)) {
+  for (const row of stmt.iterate(...params)) {
     process.stdout.write(JSON.stringify(row) + "\n");
   }
 
