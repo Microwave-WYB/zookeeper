@@ -9,22 +9,9 @@ function formatNum(n: number): string {
   return String(n);
 }
 
-interface MetadataRow {
-  pkg_name: string;
-  version_code: number;
-  title: string | null;
-  creator: string | null;
-  description: string | null;
-  permissions: string;
-  num_downloads: string | null;
-  star_rating: number | null;
-  upload_date: string | null;
-  install_size: number;
-  metadata_date: string | null;
-  raw: string;
-}
+type MetadataValues = (string | number | null)[];
 
-function parseMetadataLine(line: string): MetadataRow | null {
+function parseMetadataLine(line: string): MetadataValues | null {
   try {
     const obj = JSON.parse(line);
     const pkgName = obj.docid || obj.packageName || obj.backendDocid;
@@ -37,20 +24,20 @@ function parseMetadataLine(line: string): MetadataRow | null {
       description = description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     }
 
-    return {
-      pkg_name: pkgName,
-      version_code: appDetails.versionCode || 0,
-      title: obj.title || null,
-      creator: obj.creator || null,
+    return [
+      pkgName,
+      appDetails.versionCode || 0,
+      obj.title || null,
+      obj.creator || null,
       description,
-      permissions: JSON.stringify(appDetails.permission || []),
-      num_downloads: appDetails.numDownloads || null,
-      star_rating: obj.aggregateRating?.starRating || null,
-      upload_date: appDetails.uploadDate || null,
-      install_size: parseInt(appDetails.installationSize, 10) || 0,
-      metadata_date: obj.az_metadata_date || null,
-      raw: line,
-    };
+      JSON.stringify(appDetails.permission || []),
+      appDetails.numDownloads || null,
+      obj.aggregateRating?.starRating || null,
+      appDetails.uploadDate || null,
+      parseInt(appDetails.installationSize, 10) || 0,
+      obj.az_metadata_date || null,
+      line,
+    ];
   } catch {
     return null;
   }
@@ -68,6 +55,7 @@ export async function importMetadata(
   db.exec("PRAGMA cache_size = -64000");
   db.exec("PRAGMA mmap_size = 268435456");
 
+  // Create table without primary key for fast bulk insert
   db.exec("DROP TABLE IF EXISTS gp_metadata");
   db.exec(`CREATE TABLE gp_metadata (
     pkg_name       TEXT,
@@ -81,15 +69,14 @@ export async function importMetadata(
     upload_date    TEXT,
     install_size   INTEGER,
     metadata_date  TEXT,
-    raw            TEXT,
-    PRIMARY KEY (pkg_name, version_code, metadata_date)
+    raw            TEXT
   )`);
 
-  const BATCH_SIZE = 2000;
+  const BATCH_SIZE = 10000;
   const COLS = 12;
   const placeholders = Array(COLS).fill("?").join(",");
   const batchPlaceholders = Array(BATCH_SIZE).fill(`(${placeholders})`).join(",");
-  const insertSql = `INSERT OR IGNORE INTO gp_metadata
+  const insertSql = `INSERT INTO gp_metadata
     (pkg_name, version_code, title, creator, description, permissions,
      num_downloads, star_rating, upload_date, install_size, metadata_date, raw)
     VALUES`;
@@ -98,12 +85,12 @@ export async function importMetadata(
 
   let rows = 0;
   let skipped = 0;
-  let batch: (string | number | null)[][] = [];
+  let batch: MetadataValues[] = [];
   let compressedRead = 0;
   const startTime = Date.now();
   let lastReport = 0;
 
-  const flush = (currentBatch: (string | number | null)[][]) => {
+  const flush = (currentBatch: MetadataValues[]) => {
     if (currentBatch.length === 0) return;
     if (currentBatch.length === BATCH_SIZE) {
       batchStmt.run(...currentBatch.flat());
@@ -136,12 +123,7 @@ export async function importMetadata(
         const parsed = parseMetadataLine(line);
         if (!parsed) { skipped++; continue; }
 
-        batch.push([
-          parsed.pkg_name, parsed.version_code, parsed.title, parsed.creator,
-          parsed.description, parsed.permissions, parsed.num_downloads,
-          parsed.star_rating, parsed.upload_date, parsed.install_size,
-          parsed.metadata_date, parsed.raw,
-        ]);
+        batch.push(parsed);
         rows++;
 
         if (batch.length >= BATCH_SIZE) {
@@ -163,17 +145,8 @@ export async function importMetadata(
     gunzip.on("end", () => {
       if (leftover.trim()) {
         const parsed = parseMetadataLine(leftover);
-        if (parsed) {
-          batch.push([
-            parsed.pkg_name, parsed.version_code, parsed.title, parsed.creator,
-            parsed.description, parsed.permissions, parsed.num_downloads,
-            parsed.star_rating, parsed.upload_date, parsed.install_size,
-            parsed.metadata_date, parsed.raw,
-          ]);
-          rows++;
-        } else {
-          skipped++;
-        }
+        if (parsed) { batch.push(parsed); rows++; }
+        else { skipped++; }
       }
       flush(batch);
       resolve();
@@ -190,8 +163,10 @@ export async function importMetadata(
   const rate = Math.round(rows / elapsed);
   process.stderr.write(`\rImporting metadata... ${formatNum(rows)} rows (100%) ${formatNum(rate)} rows/s\n`);
 
+  // Create indexes after bulk insert
   process.stderr.write("Creating metadata indexes...\n");
   const indexes = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_gp_pk ON gp_metadata(pkg_name, version_code, metadata_date)",
     "CREATE INDEX IF NOT EXISTS idx_gp_pkg_name ON gp_metadata(pkg_name)",
     "CREATE INDEX IF NOT EXISTS idx_gp_version_code ON gp_metadata(version_code)",
     "CREATE INDEX IF NOT EXISTS idx_gp_metadata_date ON gp_metadata(metadata_date)",
