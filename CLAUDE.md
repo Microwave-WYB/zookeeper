@@ -82,7 +82,7 @@ zoo verify                            # check downloads table vs files on disk
 ### Pipeline Example
 ```bash
 zoo query --market play.google.com \
-  | jq 'select(.pkg_name | test("bluetooth"; "i"))' \
+  | jq -r 'select(.pkg_name | test("bluetooth"; "i")) | .sha256' \
   | zoo download --jobs 15
 ```
 
