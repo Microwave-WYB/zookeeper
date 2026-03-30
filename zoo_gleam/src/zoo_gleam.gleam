@@ -100,12 +100,11 @@ fn status_command() -> glint.Command(Nil) {
   case simplifile.is_file(db_file) {
     Ok(True) -> {
       let conn = db.open_readonly(db_file)
-      let apk_count =
-        db.query_count(conn, "SELECT COUNT(*) as count FROM apks", [])
+      let apk_count = db.count(conn, "SELECT COUNT(*) as count FROM apks", [])
       io.println_error("APKs:     " <> int.to_string(apk_count) <> " rows")
 
       let meta_count =
-        db.query_count(conn, "SELECT COUNT(*) as count FROM gp_metadata", [])
+        db.count(conn, "SELECT COUNT(*) as count FROM gp_metadata", [])
       io.println_error("Metadata: " <> int.to_string(meta_count) <> " rows")
       db.close(conn)
     }
