@@ -1,7 +1,7 @@
 import { defineCommand, runMain } from "citty";
 import { sync } from "./sync";
 import { query, type QueryOpts } from "./query";
-import { download, readStdinJsonl } from "./download";
+import { download, readStdinLines } from "./download";
 import { list } from "./list";
 import { verify } from "./verify";
 import { getConfigValue, setConfigValue, getApiKey, getZooHome, dbPath, storePath } from "./config";
@@ -216,7 +216,7 @@ const downloadCommand = defineCommand({
       );
       process.exit(1);
     }
-    await download({ jobs, force, items: readStdinJsonl() });
+    await download({ jobs, force, items: readStdinLines() });
   },
 });
 

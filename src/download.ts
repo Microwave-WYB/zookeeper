@@ -87,15 +87,15 @@ export async function download(opts: {
 /**
  * Read JSONL from stdin, yielding DownloadItem objects.
  */
-export async function* readStdinJsonl(): AsyncGenerator<DownloadItem> {
+export async function* readStdinLines(): AsyncGenerator<DownloadItem> {
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {
-    if (line.trim() === "") continue;
-    try {
-      const obj = JSON.parse(line) as Record<string, unknown>;
-      if (typeof obj.sha256 === "string") yield { ...obj, sha256: obj.sha256 } as DownloadItem;
-    } catch {
-      process.stderr.write(`Warning: skipping malformed JSONL line\n`);
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+      yield { sha256: trimmed };
+    } else {
+      process.stderr.write(`Warning: skipping invalid hash: ${trimmed.slice(0, 40)}\n`);
     }
   }
 }
