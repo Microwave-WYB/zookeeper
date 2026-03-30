@@ -13,19 +13,22 @@ Built in TypeScript, running on Bun.
 ### Project Structure
 ```
 src/
-  main.ts          # Entry point + CLI routing
+  main.ts          # Entry point + CLI routing (citty)
   config.ts        # Config management (ZOO_HOME, API key)
-  db.ts            # SQLite wrapper (bun:sqlite)
   sync.ts          # Download + import orchestration
   csv_import.ts    # Streaming gunzip + CSV parse + SQLite bulk insert
   metadata_import.ts # Streaming gunzip + JSONL parse + SQLite bulk insert
   http.ts          # Chunked parallel HTTP download with progress
   query.ts         # Query building + JSONL output
   download.ts      # APK download orchestration
+  list.ts          # Walk store directory, emit JSONL
+  verify.ts        # Verify downloaded APKs against SHA-256
 ```
 
 ### Dependencies
-**No npm dependencies.** All I/O uses Bun built-ins:
+- `citty` — CLI framework (auto-generated help, subcommands)
+
+All I/O uses Bun built-ins:
 - `bun:sqlite` — SQLite driver
 - `fetch` + `ReadableStream` — streaming HTTP
 - `node:zlib` — gzip decompression
@@ -156,8 +159,8 @@ Gives 256 x 256 = 65,536 leaf directories.
 ## Development
 
 ```bash
-make          # build gleam + compile binary
-make dev      # build gleam only, run with bun (fast iteration)
+make          # compile to single binary
+make dev      # run with bun directly (fast iteration)
 make run      # build + run
 make install  # build + install to ~/.local/bin/zoo
 make uninstall # remove from ~/.local/bin/zoo
