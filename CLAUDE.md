@@ -1,52 +1,41 @@
 # zoo
 
 A CLI tool to automate [AndroZoo](https://androzoo.uni.lu/api_doc) APK dataset management.
-Built in Gleam, compiled to JavaScript, running on Bun.
+Built in TypeScript, running on Bun.
 
 ## Architecture
 
 ### Language & Runtime
-- **Gleam** targeting JavaScript (not Erlang)
-- **Bun** as the runtime (not Node.js)
-- Compile with `gleam build --target javascript`, run with `bun`
+- **TypeScript** with Bun runtime
+- No npm dependencies — all I/O uses Bun built-ins
+- Compiled to single binary via `bun build --compile`
 
 ### Project Structure
 ```
 src/
-  zoo/           # Gleam source
-    cli.gleam    # CLI routing (glint)
-    config.gleam # Config management
-    query.gleam  # Query building & JSONL output
-    download.gleam # Download orchestration
-    db.gleam     # Gleam-side DB interface (FFI bridge)
-  zoo_ffi/       # JavaScript FFI modules (Bun APIs)
-    db.mjs       # bun:sqlite wrapper
-    http.mjs     # Streaming HTTP download with progress
-    csv_import.mjs # Streaming gunzip + CSV parse + SQLite bulk insert
+  main.ts          # Entry point + CLI routing
+  config.ts        # Config management (ZOO_HOME, API key)
+  db.ts            # SQLite wrapper (bun:sqlite)
+  sync.ts          # Download + import orchestration
+  csv_import.ts    # Streaming gunzip + CSV parse + SQLite bulk insert
+  metadata_import.ts # Streaming gunzip + JSONL parse + SQLite bulk insert
+  http.ts          # Chunked parallel HTTP download with progress
+  query.ts         # Query building + JSONL output
+  download.ts      # APK download orchestration
 ```
 
 ### Dependencies
-
-**Gleam packages (from hex):**
-- `gleam_stdlib`
-- `gleam_json`
-- `argv`
-- `glint` — CLI framework
-- `simplifile` — filesystem ops
-
-**No npm dependencies.** All I/O uses Bun built-ins via FFI:
+**No npm dependencies.** All I/O uses Bun built-ins:
 - `bun:sqlite` — SQLite driver
 - `fetch` + `ReadableStream` — streaming HTTP
-- `node:zlib` / `Bun.gunzipSync` — gzip decompression
+- `node:zlib` — gzip decompression
 - `process.stderr.write` — progress output (simple text with `\r`, no progress bar library)
-
-**Always check https://hexdocs.pm for current API of Gleam packages before using them.**
-Gleam libraries update frequently; never assume an API from memory is still correct.
 
 ## CLI Design
 
 ### Environment
 - `ZOO_HOME` — root directory for all data (default: `~/.local/share/zoo`)
+- `ZOO_API_KEY` — API key (alternative to config file)
   ```
   $ZOO_HOME/
     zoo.db          # SQLite (CSV metadata + download tracking)
@@ -64,11 +53,13 @@ zoo config get <key>
 
 zoo sync                              # download latest.csv.gz -> import to SQLite
 zoo sync --with-added-date            # use enhanced CSV variant
+zoo sync --with-metadata              # also download + import GP metadata full (~7.1GB gz)
 zoo status                            # db stats, last sync time
 
 zoo query --pkg "com.whatsapp"        # JSONL to stdout
 zoo query --market play.google.com --after 2022-01-01
 zoo query --min-vt 0 --max-vt 3 --limit 100
+zoo query --permission "android.permission.BLUETOOTH_SCAN"
 
 zoo download                          # reads JSONL from stdin
 zoo download --pkg "com.whatsapp"     # shortcut (same flags as query)
@@ -112,6 +103,26 @@ zoo query --market play.google.com \
 
 Indexes: `pkg_name`, `markets`, `vt_detection`, `dex_date`, `apk_size`.
 
+### `gp_metadata` table (from full GP metadata import)
+| Column         | Type    | Description                    |
+|---------------|---------|--------------------------------|
+| pkg_name      | TEXT    | Package name                   |
+| version_code  | INTEGER | Version code                   |
+| title         | TEXT    | App title                      |
+| creator       | TEXT    | Developer name                 |
+| description   | TEXT    | App description (text, no HTML)|
+| permissions   | TEXT    | JSON array of permissions      |
+| num_downloads | TEXT    | Download count string          |
+| star_rating   | REAL    | Aggregate star rating          |
+| upload_date   | TEXT    | Upload date                    |
+| install_size  | INTEGER | Installation size bytes        |
+| metadata_date | TEXT    | When metadata was acquired     |
+| raw           | TEXT    | Full JSON object               |
+
+Primary key: `(pkg_name, version_code, metadata_date)`.
+Indexes: `pkg_name`.
+Permissions stored as JSON array for flexible querying with `json_each()`.
+
 ### No downloads table
 Download state is derived from the filesystem. To check if an APK is downloaded,
 `stat` the expected path `store/ab/cd/abcdef...apk`. File mtime serves as
@@ -128,15 +139,19 @@ Gives 256 x 256 = 65,536 leaf directories.
 
 ## Key Design Decisions
 
-- **CSV import is pure JS FFI** — the hot path (parsing millions of rows from 2.7GB+ gzip)
-  stays in JavaScript for performance. Gleam calls a single FFI function.
-- **Streaming import** — gunzip stream -> line-by-line CSV parse -> batch INSERT
+- **Streaming import** — gunzip stream -> line-by-line parse -> batch INSERT
   with progress reported to stderr.
+- **Chunked parallel download** — large files (CSV gz, metadata gz) are downloaded
+  using 20 parallel HTTP Range requests for maximum throughput.
+- **Concurrent APK download** — `zoo download --jobs N` runs up to N (max 20)
+  concurrent single-file downloads.
 - **Deduplication** — `zoo download` checks file existence on disk before fetching.
 - **Skip malformed rows** — the known "snaggamea" entry and any other CSV parse failures
   are skipped with a warning to stderr.
 - **ETag caching** — `zoo sync` stores the HTTP ETag/Last-Modified from the CSV download
   to skip re-download if unchanged.
+- **GP metadata permissions query** — permissions stored as JSON array, queried with
+  SQLite `json_each()` for exact permission matching.
 
 ## Development
 

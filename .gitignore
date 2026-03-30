@@ -1,4 +1,5 @@
 .zoo/
 .envrc
-build/
+node_modules/
 zoo
+*.tmp
