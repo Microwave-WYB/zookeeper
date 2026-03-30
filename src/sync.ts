@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { Database } from "bun:sqlite";
 import { ensureDirs, dbPath, getZooHome, getApiKey } from "./config";
 import { downloadChunked, type DownloadResult } from "./http";
 import { importCsv } from "./csv_import";
@@ -24,7 +25,7 @@ function loadSyncState(): SyncState {
   const path = syncStatePath();
   if (!existsSync(path)) return {};
   try {
-    return JSON.parse(readFileSync(path, "utf-8"));
+    return JSON.parse(readFileSync(path, "utf-8")) as SyncState;
   } catch {
     return {};
   }
@@ -37,7 +38,7 @@ function saveSyncState(state: SyncState): void {
 function formatSize(bytes: number): string {
   if (bytes >= 1_073_741_824) return (bytes / 1_073_741_824).toFixed(1) + " GB";
   if (bytes >= 1_048_576) return (bytes / 1_048_576).toFixed(1) + " MB";
-  return bytes + " B";
+  return String(bytes) + " B";
 }
 
 async function prompt(question: string): Promise<boolean> {
@@ -61,7 +62,6 @@ async function checkAndDownload(
   if (!head.ok) throw new Error(`HEAD ${url}: ${head.status} ${head.statusText}`);
 
   const etag = head.headers.get("etag");
-  const lastModified = head.headers.get("last-modified");
   const size = parseInt(head.headers.get("content-length") || "0", 10);
 
   // ETag matches — already up to date
@@ -84,10 +84,7 @@ async function checkAndDownload(
   return downloadChunked(url, destPath, { label, cachedEtag: undefined });
 }
 
-export async function sync(opts: {
-  withAddedDate: boolean;
-  withMetadata: boolean;
-}): Promise<void> {
+export async function sync(opts: { withAddedDate: boolean; withMetadata: boolean }): Promise<void> {
   ensureDirs();
 
   const home = getZooHome();
@@ -98,9 +95,7 @@ export async function sync(opts: {
   const gzPath = `${home}/latest.csv.gz`;
 
   // Check and download CSV
-  const csvResult = await checkAndDownload(
-    csvUrl, gzPath, "[CSV]", state.csv_etag ?? undefined,
-  );
+  const csvResult = await checkAndDownload(csvUrl, gzPath, "[CSV]", state.csv_etag ?? undefined);
 
   // Check and download metadata (after CSV, since prompts are sequential)
   let metaGzPath: string | undefined;
@@ -110,7 +105,10 @@ export async function sync(opts: {
     metaGzPath = `${home}/gp-metadata-full.jsonl.gz`;
     const metaUrl = `${METADATA_URL}?apikey=${apiKey}`;
     metaResult = await checkAndDownload(
-      metaUrl, metaGzPath, "[Metadata]", state.metadata_etag ?? undefined,
+      metaUrl,
+      metaGzPath,
+      "[Metadata]",
+      state.metadata_etag ?? undefined,
     );
   }
 
@@ -118,7 +116,9 @@ export async function sync(opts: {
   if (csvResult.status === "ok" || !tableExists(db, "apks")) {
     if (existsSync(gzPath)) {
       const importResult = await importCsv(db, gzPath, opts.withAddedDate);
-      process.stderr.write(`CSV import complete: ${importResult.rows} rows, ${importResult.skipped} skipped\n`);
+      process.stderr.write(
+        `CSV import complete: ${importResult.rows} rows, ${importResult.skipped} skipped\n`,
+      );
     }
     state.csv_etag = csvResult.etag;
     state.csv_synced_at = new Date().toISOString();
@@ -131,7 +131,9 @@ export async function sync(opts: {
     if (metaResult.status === "ok" || !tableExists(db, "gp_metadata")) {
       if (existsSync(metaGzPath)) {
         const importResult = await importMetadata(db, metaGzPath);
-        process.stderr.write(`Metadata import complete: ${importResult.rows} rows, ${importResult.skipped} skipped\n`);
+        process.stderr.write(
+          `Metadata import complete: ${importResult.rows} rows, ${importResult.skipped} skipped\n`,
+        );
       }
       state.metadata_etag = metaResult.etag;
       state.metadata_synced_at = new Date().toISOString();
@@ -147,13 +149,12 @@ export async function sync(opts: {
 function tableExists(dbFile: string, table: string): boolean {
   if (!existsSync(dbFile)) return false;
   try {
-    const { Database } = require("bun:sqlite");
     const conn = new Database(dbFile, { readonly: true });
-    const row = conn.query(
-      "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?",
-    ).get(table) as any;
+    const row = conn
+      .query("SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?")
+      .get(table) as { cnt: number } | null;
     conn.close();
-    return row?.cnt > 0;
+    return (row?.cnt ?? 0) > 0;
   } catch {
     return false;
   }

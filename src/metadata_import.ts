@@ -13,29 +13,37 @@ type MetadataValues = (string | number | null)[];
 
 function parseMetadataLine(line: string): MetadataValues | null {
   try {
-    const obj = JSON.parse(line);
+    const obj = JSON.parse(line) as Record<string, unknown>;
     const pkgName = obj.docid || obj.packageName || obj.backendDocid;
     if (!pkgName) return null;
 
-    const appDetails = obj.details?.appDetails || {};
+    const details = obj.details as Record<string, unknown> | undefined;
+    const appDetails = (details?.appDetails || {}) as Record<string, unknown>;
 
-    let description = obj.descriptionHtml || obj.descriptionShort || null;
+    const descriptionHtml = obj.descriptionHtml as string | undefined;
+    const descriptionShort = obj.descriptionShort as string | undefined;
+    let description: string | null = descriptionHtml || descriptionShort || null;
     if (description) {
-      description = description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+      description = description
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
     }
 
+    const aggregateRating = obj.aggregateRating as Record<string, unknown> | undefined;
+
     return [
-      pkgName,
-      appDetails.versionCode || 0,
-      obj.title || null,
-      obj.creator || null,
+      pkgName as string,
+      (appDetails.versionCode as number) || 0,
+      (obj.title as string) || null,
+      (obj.creator as string) || null,
       description,
-      JSON.stringify(appDetails.permission || []),
-      appDetails.numDownloads || null,
-      obj.aggregateRating?.starRating || null,
-      appDetails.uploadDate || null,
-      parseInt(appDetails.installationSize, 10) || 0,
-      obj.az_metadata_date || null,
+      JSON.stringify(appDetails.permission ?? []),
+      (appDetails.numDownloads as string) || null,
+      (aggregateRating?.starRating as number) || null,
+      (appDetails.uploadDate as string) || null,
+      parseInt(String(appDetails.installationSize), 10) || 0,
+      (obj.az_metadata_date as string) || null,
       line,
     ];
   } catch {
@@ -50,14 +58,14 @@ export async function importMetadata(
   const db = new Database(dbPath);
   const fileSize = statSync(gzPath).size;
 
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA synchronous = OFF");
-  db.exec("PRAGMA cache_size = -64000");
-  db.exec("PRAGMA mmap_size = 268435456");
+  db.run("PRAGMA journal_mode = WAL");
+  db.run("PRAGMA synchronous = OFF");
+  db.run("PRAGMA cache_size = -64000");
+  db.run("PRAGMA mmap_size = 268435456");
 
   // Create table without primary key for fast bulk insert
-  db.exec("DROP TABLE IF EXISTS gp_metadata");
-  db.exec(`CREATE TABLE gp_metadata (
+  db.run("DROP TABLE IF EXISTS gp_metadata");
+  db.run(`CREATE TABLE gp_metadata (
     pkg_name       TEXT,
     version_code   INTEGER,
     title          TEXT,
@@ -100,7 +108,7 @@ export async function importMetadata(
     }
   };
 
-  db.exec("BEGIN TRANSACTION");
+  db.run("BEGIN TRANSACTION");
 
   await new Promise<void>((resolve, reject) => {
     const input = createReadStream(gzPath);
@@ -121,7 +129,10 @@ export async function importMetadata(
         if (line.trim() === "") continue;
 
         const parsed = parseMetadataLine(line);
-        if (!parsed) { skipped++; continue; }
+        if (!parsed) {
+          skipped++;
+          continue;
+        }
 
         batch.push(parsed);
         rows++;
@@ -136,7 +147,9 @@ export async function importMetadata(
           const elapsed = (now - startTime) / 1000;
           const rate = Math.round(rows / elapsed);
           const pct = Math.round((compressedRead / fileSize) * 100);
-          process.stderr.write(`\rImporting metadata... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`);
+          process.stderr.write(
+            `\rImporting metadata... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`,
+          );
           lastReport = now;
         }
       }
@@ -145,8 +158,12 @@ export async function importMetadata(
     gunzip.on("end", () => {
       if (leftover.trim()) {
         const parsed = parseMetadataLine(leftover);
-        if (parsed) { batch.push(parsed); rows++; }
-        else { skipped++; }
+        if (parsed) {
+          batch.push(parsed);
+          rows++;
+        } else {
+          skipped++;
+        }
       }
       flush(batch);
       resolve();
@@ -157,11 +174,13 @@ export async function importMetadata(
     input.pipe(gunzip);
   });
 
-  db.exec("COMMIT");
+  db.run("COMMIT");
 
   const elapsed = (Date.now() - startTime) / 1000;
   const rate = Math.round(rows / elapsed);
-  process.stderr.write(`\rImporting metadata... ${formatNum(rows)} rows (100%) ${formatNum(rate)} rows/s\n`);
+  process.stderr.write(
+    `\rImporting metadata... ${formatNum(rows)} rows (100%) ${formatNum(rate)} rows/s\n`,
+  );
 
   // Create indexes after bulk insert
   process.stderr.write("Creating metadata indexes...\n");
@@ -173,11 +192,11 @@ export async function importMetadata(
   ];
   for (let i = 0; i < indexes.length; i++) {
     process.stderr.write(`\rCreating metadata indexes... ${i + 1}/${indexes.length}`);
-    db.exec(indexes[i]);
+    db.run(indexes[i] as string);
   }
   process.stderr.write(`\rCreating metadata indexes... ${indexes.length}/${indexes.length}\n`);
 
-  db.exec("PRAGMA synchronous = NORMAL");
+  db.run("PRAGMA synchronous = NORMAL");
   db.close();
 
   return { rows, skipped };

@@ -14,10 +14,13 @@ run: build
 	./$(BIN)
 
 fix:
-	@echo "No auto-fix needed for TypeScript/Bun"
+	bunx prettier --write src/
+	bunx eslint --fix src/
 
 check:
-	bun run $(ENTRY) --help > /dev/null
+	bunx prettier --check src/
+	bunx eslint src/
+	bunx tsc --noEmit
 
 install: build
 	mkdir -p $(INSTALL_DIR)

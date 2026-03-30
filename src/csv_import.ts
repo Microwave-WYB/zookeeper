@@ -22,7 +22,7 @@ function parseCsvLine(line: string, expectedCols: number): string[] | null {
   let inQuote = false;
 
   while (i < line.length) {
-    const ch = line[i];
+    const ch = line[i] as string;
     if (inQuote) {
       if (ch === '"' && line[i + 1] === '"') {
         field += '"';
@@ -60,13 +60,13 @@ export async function importCsv(
   const db = new Database(dbPath);
   const fileSize = statSync(gzPath).size;
 
-  db.exec("PRAGMA journal_mode = WAL");
-  db.exec("PRAGMA synchronous = OFF");
-  db.exec("PRAGMA cache_size = -64000");
-  db.exec("PRAGMA mmap_size = 268435456");
+  db.run("PRAGMA journal_mode = WAL");
+  db.run("PRAGMA synchronous = OFF");
+  db.run("PRAGMA cache_size = -64000");
+  db.run("PRAGMA mmap_size = 268435456");
 
-  db.exec("DROP TABLE IF EXISTS apks");
-  db.exec(`CREATE TABLE apks (
+  db.run("DROP TABLE IF EXISTS apks");
+  db.run(`CREATE TABLE apks (
     sha256       TEXT PRIMARY KEY,
     sha1         TEXT,
     md5          TEXT,
@@ -86,7 +86,9 @@ export async function importCsv(
   const numCols = withAddedDate ? 12 : 11;
   const placeholders = Array(numCols).fill("?").join(",");
   const batchPlaceholders = Array(BATCH_SIZE).fill(`(${placeholders})`).join(",");
-  const cols = "sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets" + (withAddedDate ? ", added" : "");
+  const cols =
+    "sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets" +
+    (withAddedDate ? ", added" : "");
 
   const batchStmt = db.prepare(`INSERT OR IGNORE INTO apks (${cols}) VALUES ${batchPlaceholders}`);
 
@@ -108,7 +110,7 @@ export async function importCsv(
     }
   };
 
-  db.exec("BEGIN TRANSACTION");
+  db.run("BEGIN TRANSACTION");
 
   await new Promise<void>((resolve, reject) => {
     const input = createReadStream(gzPath);
@@ -126,18 +128,24 @@ export async function importCsv(
       leftover = lines.pop() || "";
 
       for (const line of lines) {
-        if (!headerSkipped) { headerSkipped = true; continue; }
+        if (!headerSkipped) {
+          headerSkipped = true;
+          continue;
+        }
         if (line.trim() === "") continue;
 
         const parsed = parseCsvLine(line, numCols);
-        if (!parsed) { skipped++; continue; }
+        if (!parsed) {
+          skipped++;
+          continue;
+        }
 
         // Convert numeric fields (CSV order: sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets)
         const row: (string | number)[] = [...parsed];
-        row[4] = parseInt(parsed[4], 10) || 0; // apk_size
-        row[6] = parseInt(parsed[6], 10) || 0; // vercode
-        row[7] = parseInt(parsed[7], 10) || 0; // vt_detection
-        row[9] = parseInt(parsed[9], 10) || 0; // dex_size
+        row[4] = parseInt(parsed[4] ?? "", 10) || 0; // apk_size
+        row[6] = parseInt(parsed[6] ?? "", 10) || 0; // vercode
+        row[7] = parseInt(parsed[7] ?? "", 10) || 0; // vt_detection
+        row[9] = parseInt(parsed[9] ?? "", 10) || 0; // dex_size
 
         batch.push(row);
         rows++;
@@ -152,7 +160,9 @@ export async function importCsv(
           const elapsed = (now - startTime) / 1000;
           const rate = Math.round(rows / elapsed);
           const pct = Math.round((compressedRead / fileSize) * 100);
-          process.stderr.write(`\rImporting CSV... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`);
+          process.stderr.write(
+            `\rImporting CSV... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`,
+          );
           lastReport = now;
         }
       }
@@ -163,10 +173,10 @@ export async function importCsv(
         const parsed = parseCsvLine(leftover, numCols);
         if (parsed) {
           const row: (string | number)[] = [...parsed];
-          row[4] = parseInt(parsed[4], 10) || 0;
-          row[6] = parseInt(parsed[6], 10) || 0;
-          row[7] = parseInt(parsed[7], 10) || 0;
-          row[9] = parseInt(parsed[9], 10) || 0;
+          row[4] = parseInt(parsed[4] ?? "", 10) || 0;
+          row[6] = parseInt(parsed[6] ?? "", 10) || 0;
+          row[7] = parseInt(parsed[7] ?? "", 10) || 0;
+          row[9] = parseInt(parsed[9] ?? "", 10) || 0;
           batch.push(row);
           rows++;
         } else {
@@ -182,11 +192,13 @@ export async function importCsv(
     input.pipe(gunzip);
   });
 
-  db.exec("COMMIT");
+  db.run("COMMIT");
 
   const elapsed = (Date.now() - startTime) / 1000;
   const rate = Math.round(rows / elapsed);
-  process.stderr.write(`\rImporting CSV... ${formatNum(rows)} rows (100%) ${formatNum(rate)} rows/s\n`);
+  process.stderr.write(
+    `\rImporting CSV... ${formatNum(rows)} rows (100%) ${formatNum(rate)} rows/s\n`,
+  );
 
   process.stderr.write("Creating indexes...\n");
   const indexes = [
@@ -198,11 +210,11 @@ export async function importCsv(
   ];
   for (let i = 0; i < indexes.length; i++) {
     process.stderr.write(`\rCreating indexes... ${i + 1}/${indexes.length}`);
-    db.exec(indexes[i]);
+    db.run(indexes[i] as string);
   }
   process.stderr.write(`\rCreating indexes... ${indexes.length}/${indexes.length}\n`);
 
-  db.exec("PRAGMA synchronous = NORMAL");
+  db.run("PRAGMA synchronous = NORMAL");
   db.close();
 
   return { rows, skipped };

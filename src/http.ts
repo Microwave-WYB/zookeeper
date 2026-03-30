@@ -5,10 +5,16 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1_073_741_824) return (bytes / 1_073_741_824).toFixed(1) + " GB";
   if (bytes >= 1_048_576) return (bytes / 1_048_576).toFixed(1) + " MB";
   if (bytes >= 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return bytes + " B";
+  return String(bytes) + " B";
 }
 
-function reportProgress(label: string, downloaded: number, total: number, startTime: number, final = false) {
+function reportProgress(
+  label: string,
+  downloaded: number,
+  total: number,
+  startTime: number,
+  final = false,
+) {
   const elapsed = (Date.now() - startTime) / 1000;
   const speed = elapsed > 0 ? downloaded / elapsed : 0;
   const pct = total ? Math.round((downloaded / total) * 100) : 0;
@@ -70,15 +76,17 @@ async function downloadSingle(url: string, destPath: string, contentLength: numb
   if (!resp.ok) throw new Error(`GET ${url}: ${resp.status}`);
 
   const writer = Bun.file(destPath).writer();
-  const reader = resp.body!.getReader();
+  if (!resp.body) throw new Error(`GET ${url}: response body is null`);
+  const reader = resp.body.getReader();
   let downloaded = 0;
   const startTime = Date.now();
   let lastReport = 0;
 
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    writer.write(value);
+    await writer.write(value);
     downloaded += value.byteLength;
     const now = Date.now();
     if (now - lastReport >= 500) {
@@ -86,11 +94,17 @@ async function downloadSingle(url: string, destPath: string, contentLength: numb
       lastReport = now;
     }
   }
-  writer.end();
+  await writer.end();
   reportProgress(label, downloaded, contentLength, startTime, true);
 }
 
-async function downloadParallel(url: string, destPath: string, totalSize: number, numWorkers: number, label: string) {
+async function downloadParallel(
+  url: string,
+  destPath: string,
+  totalSize: number,
+  numWorkers: number,
+  label: string,
+) {
   const chunkSize = Math.ceil(totalSize / numWorkers);
   let totalDownloaded = 0;
   const startTime = Date.now();
@@ -107,7 +121,7 @@ async function downloadParallel(url: string, destPath: string, totalSize: number
   const chunkPaths = chunks.map((c) => `${destPath}.part${c.index}`);
 
   const downloadChunkToFile = async (chunk: { start: number; end: number; index: number }) => {
-    const chunkPath = chunkPaths[chunk.index];
+    const chunkPath = chunkPaths[chunk.index] as string;
     const resp = await fetch(url, {
       headers: { Range: `bytes=${chunk.start}-${chunk.end}` },
     });
@@ -116,12 +130,15 @@ async function downloadParallel(url: string, destPath: string, totalSize: number
     }
 
     const writer = Bun.file(chunkPath).writer();
-    const reader = resp.body!.getReader();
+    if (!resp.body)
+      throw new Error(`Range request for chunk ${chunk.index}: response body is null`);
+    const reader = resp.body.getReader();
 
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      writer.write(value);
+      await writer.write(value);
       totalDownloaded += value.byteLength;
       const now = Date.now();
       if (now - lastReport >= 500) {
@@ -129,7 +146,7 @@ async function downloadParallel(url: string, destPath: string, totalSize: number
         lastReport = now;
       }
     }
-    writer.end();
+    await writer.end();
   };
 
   // Download all chunks in parallel
@@ -143,11 +160,11 @@ async function downloadParallel(url: string, destPath: string, totalSize: number
   for (const chunkPath of chunkPaths) {
     const stream = createReadStream(chunkPath);
     for await (const buf of stream) {
-      outWriter.write(buf);
+      await outWriter.write(buf as Uint8Array);
     }
     unlinkSync(chunkPath);
   }
-  outWriter.end();
+  await outWriter.end();
 }
 
 /**

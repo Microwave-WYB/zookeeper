@@ -28,7 +28,7 @@ function readConfig(): Record<string, string> {
   const path = configPath();
   if (!existsSync(path)) return {};
   try {
-    return JSON.parse(readFileSync(path, "utf-8"));
+    return JSON.parse(readFileSync(path, "utf-8")) as Record<string, string>;
   } catch {
     return {};
   }

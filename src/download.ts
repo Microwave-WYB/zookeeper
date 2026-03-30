@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { storePath, getApiKey } from "./config";
@@ -51,11 +51,10 @@ export async function download(opts: {
       process.stdout.write(
         JSON.stringify({ sha256: item.sha256, status: "ok", path: dest }) + "\n",
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       errors++;
-      process.stdout.write(
-        JSON.stringify({ sha256: item.sha256, status: "error", reason: e.message }) + "\n",
-      );
+      const reason = e instanceof Error ? e.message : String(e);
+      process.stdout.write(JSON.stringify({ sha256: item.sha256, status: "error", reason }) + "\n");
     }
     reportStatus();
   };
@@ -93,8 +92,8 @@ export async function* readStdinJsonl(): AsyncGenerator<DownloadItem> {
   for await (const line of rl) {
     if (line.trim() === "") continue;
     try {
-      const obj = JSON.parse(line);
-      if (obj.sha256) yield obj;
+      const obj = JSON.parse(line) as Record<string, unknown>;
+      if (typeof obj.sha256 === "string") yield { ...obj, sha256: obj.sha256 } as DownloadItem;
     } catch {
       process.stderr.write(`Warning: skipping malformed JSONL line\n`);
     }

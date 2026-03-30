@@ -67,9 +67,7 @@ export function query(opts: QueryOpts): void {
   let joinMeta = false;
   if (opts.permission) {
     joinMeta = true;
-    conditions.push(
-      "EXISTS (SELECT 1 FROM json_each(m.permissions) WHERE value = ?)",
-    );
+    conditions.push("EXISTS (SELECT 1 FROM json_each(m.permissions) WHERE value = ?)");
     params.push(opts.permission);
   }
 
