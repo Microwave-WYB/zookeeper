@@ -1,9 +1,11 @@
 import { sync } from "./sync";
 import { query, type QueryOpts } from "./query";
 import { download, readStdinJsonl } from "./download";
+import { list } from "./list";
+import { verify } from "./verify";
 import { getConfigValue, setConfigValue, getApiKey, getZooHome, dbPath, storePath } from "./config";
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 function stderr(msg: string) {
   process.stderr.write(msg + "\n");
@@ -132,6 +134,16 @@ function cmdStatus() {
     conn.close();
   } else {
     stderr("Database: (not found — run zoo sync)");
+  }
+
+  // Show sync state
+  const syncStatePath = `${home}/sync_state.json`;
+  if (existsSync(syncStatePath)) {
+    try {
+      const state = JSON.parse(readFileSync(syncStatePath, "utf-8"));
+      if (state.csv_synced_at) stderr(`CSV sync:  ${state.csv_synced_at}`);
+      if (state.metadata_synced_at) stderr(`Meta sync: ${state.metadata_synced_at}`);
+    } catch {}
   }
 }
 
@@ -279,6 +291,12 @@ async function main() {
       break;
     case "download":
       await cmdDownload(flags);
+      break;
+    case "list":
+      list();
+      break;
+    case "verify":
+      await verify();
       break;
     case "config":
       if (positional[0] === "set") {
