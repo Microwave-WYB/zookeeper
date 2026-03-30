@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync, renameSync, unlinkSync, openSync, writeSync, closeSync, createReadStream } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, existsSync, renameSync, unlinkSync, createReadStream } from "node:fs";
+import { dirname } from "node:path";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1_073_741_824) return (bytes / 1_073_741_824).toFixed(1) + " GB";
@@ -29,9 +29,11 @@ export interface DownloadResult {
 export async function downloadChunked(
   url: string,
   destPath: string,
-  numWorkers: number = 20,
-  cachedEtag?: string,
+  opts: { numWorkers?: number; cachedEtag?: string; label?: string } = {},
 ): Promise<DownloadResult> {
+  const numWorkers = opts.numWorkers ?? 20;
+  const cachedEtag = opts.cachedEtag;
+  const label = opts.label ?? "Downloading...";
   const dir = dirname(destPath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
@@ -51,9 +53,9 @@ export async function downloadChunked(
   const tmpPath = destPath + ".tmp";
 
   if (!contentLength || acceptRanges !== "bytes" || numWorkers <= 1) {
-    await downloadSingle(url, tmpPath, contentLength, "Downloading...");
+    await downloadSingle(url, tmpPath, contentLength, label);
   } else {
-    await downloadParallel(url, tmpPath, contentLength, numWorkers, "Downloading...");
+    await downloadParallel(url, tmpPath, contentLength, numWorkers, label);
   }
 
   // Atomic rename

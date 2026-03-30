@@ -82,10 +82,11 @@ export async function importCsv(
   )`);
 
   const BATCH_SIZE = 5000;
+  // CSV column order: sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets [, added]
   const numCols = withAddedDate ? 12 : 11;
   const placeholders = Array(numCols).fill("?").join(",");
   const batchPlaceholders = Array(BATCH_SIZE).fill(`(${placeholders})`).join(",");
-  const cols = "sha256, sha1, md5, apk_size, dex_size, dex_date, pkg_name, vercode, vt_detection, vt_scan_date, markets" + (withAddedDate ? ", added" : "");
+  const cols = "sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets" + (withAddedDate ? ", added" : "");
 
   const batchStmt = db.prepare(`INSERT OR IGNORE INTO apks (${cols}) VALUES ${batchPlaceholders}`);
 
@@ -131,12 +132,12 @@ export async function importCsv(
         const parsed = parseCsvLine(line, numCols);
         if (!parsed) { skipped++; continue; }
 
-        // Convert numeric fields
+        // Convert numeric fields (CSV order: sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets)
         const row: (string | number)[] = [...parsed];
-        row[3] = parseInt(parsed[3], 10) || 0; // apk_size
-        row[4] = parseInt(parsed[4], 10) || 0; // dex_size
-        row[7] = parseInt(parsed[7], 10) || 0; // vercode
-        row[8] = parseInt(parsed[8], 10) || 0; // vt_detection
+        row[4] = parseInt(parsed[4], 10) || 0; // apk_size
+        row[6] = parseInt(parsed[6], 10) || 0; // vercode
+        row[7] = parseInt(parsed[7], 10) || 0; // vt_detection
+        row[9] = parseInt(parsed[9], 10) || 0; // dex_size
 
         batch.push(row);
         rows++;
@@ -162,10 +163,10 @@ export async function importCsv(
         const parsed = parseCsvLine(leftover, numCols);
         if (parsed) {
           const row: (string | number)[] = [...parsed];
-          row[3] = parseInt(parsed[3], 10) || 0;
           row[4] = parseInt(parsed[4], 10) || 0;
+          row[6] = parseInt(parsed[6], 10) || 0;
           row[7] = parseInt(parsed[7], 10) || 0;
-          row[8] = parseInt(parsed[8], 10) || 0;
+          row[9] = parseInt(parsed[9], 10) || 0;
           batch.push(row);
           rows++;
         } else {
