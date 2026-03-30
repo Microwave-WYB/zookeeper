@@ -47,7 +47,7 @@ function parseMetadataLine(line: string): MetadataRow | null {
       num_downloads: appDetails.numDownloads || null,
       star_rating: obj.aggregateRating?.starRating || null,
       upload_date: appDetails.uploadDate || null,
-      install_size: appDetails.installationSize || 0,
+      install_size: parseInt(appDetails.installationSize, 10) || 0,
       metadata_date: obj.az_metadata_date || null,
       raw: line,
     };
