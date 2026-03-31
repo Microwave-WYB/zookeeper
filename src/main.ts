@@ -49,60 +49,6 @@ function buildQueryOpts(
   };
 }
 
-function* queryRows(db: Database, opts: QueryOpts): Iterable<{ sha256: string }> {
-  const conditions: string[] = [];
-  const params: (string | number)[] = [];
-
-  if (opts.sha256) {
-    conditions.push("a.sha256 = ?");
-    params.push(opts.sha256.toUpperCase());
-  }
-  if (opts.pkg) {
-    if (opts.pkg.includes("%") || opts.pkg.includes("*")) {
-      conditions.push("a.pkg_name LIKE ?");
-      params.push(opts.pkg.replace(/\*/g, "%"));
-    } else {
-      conditions.push("a.pkg_name = ?");
-      params.push(opts.pkg);
-    }
-  }
-  if (opts.market) {
-    conditions.push("a.markets LIKE ?");
-    params.push(`%${opts.market}%`);
-  }
-  if (opts.after) {
-    conditions.push("a.dex_date >= ?");
-    params.push(opts.after);
-  }
-  if (opts.before) {
-    conditions.push("a.dex_date <= ?");
-    params.push(opts.before);
-  }
-  if (opts.minVt !== undefined) {
-    conditions.push("a.vt_detection >= ?");
-    params.push(opts.minVt);
-  }
-  if (opts.maxVt !== undefined) {
-    conditions.push("a.vt_detection <= ?");
-    params.push(opts.maxVt);
-  }
-  if (opts.minSize !== undefined) {
-    conditions.push("a.apk_size >= ?");
-    params.push(opts.minSize);
-  }
-  if (opts.maxSize !== undefined) {
-    conditions.push("a.apk_size <= ?");
-    params.push(opts.maxSize);
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = opts.limit ? `LIMIT ${opts.limit}` : "";
-  const sql = `SELECT a.sha256 FROM apks a ${where} ${limit}`;
-  for (const row of db.prepare(sql).iterate(...params) as Iterable<{ sha256: string }>) {
-    yield row;
-  }
-}
-
 const syncCommand = defineCommand({
   meta: { description: "Download and import CSV (and optionally GP metadata) into SQLite" },
   args: {
@@ -173,9 +119,9 @@ const queryCommand = defineCommand({
 });
 
 const downloadCommand = defineCommand({
-  meta: { description: "Download APKs (reads JSONL from stdin, or use query flags as shortcut)" },
+  meta: { description: "Download APKs by SHA-256 hash (args or stdin)" },
   args: {
-    ...queryArgs,
+    hashes: { type: "positional", description: "SHA-256 hashes to download", required: false },
     jobs: { type: "string", description: "Concurrent downloads (default 4, max 20)", default: "4" },
     force: { type: "boolean", description: "Re-download even if exists" },
   },
@@ -183,36 +129,21 @@ const downloadCommand = defineCommand({
     const jobs = Math.min(parseInt(args.jobs || "4", 10), 20);
     const force = !!args.force;
 
-    if (args.sha256) {
-      await download({ jobs: 1, force, items: [{ sha256: args.sha256 }] });
+    // Positional args: one or more hashes
+    const rawArgs = process.argv.slice(3).filter((a) => !a.startsWith("--"));
+    if (rawArgs.length > 0) {
+      const items = rawArgs.map((h) => ({ sha256: h.trim() }));
+      await download({ jobs, force, items });
       return;
     }
 
-    const queryKeys = [
-      "pkg",
-      "market",
-      "after",
-      "before",
-      "min-vt",
-      "max-vt",
-      "min-size",
-      "max-size",
-      "permission",
-    ];
-    const hasQueryFlags = queryKeys.some((k) => (args as Record<string, unknown>)[k] !== undefined);
-
-    if (hasQueryFlags) {
-      const opts = buildQueryOpts(args);
-      const db = new Database(dbPath(), { readonly: true });
-      const results = queryRows(db, opts);
-      await download({ jobs, force, items: results });
-      db.close();
-      return;
-    }
-
+    // Stdin
     if (process.stdin.isTTY) {
       process.stderr.write(
-        "No input. Pipe JSONL to stdin or use query flags (--pkg, --sha256, etc.)\n",
+        "No input. Pass SHA-256 hashes as arguments or pipe to stdin.\n" +
+        "Examples:\n" +
+        "  zoo download ABC123... DEF456...\n" +
+        "  zoo query --pkg=com.whatsapp --limit=5 | jq -r '.sha256' | zoo download\n",
       );
       process.exit(1);
     }

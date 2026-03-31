@@ -64,11 +64,10 @@ zoo query --market play.google.com --after 2022-01-01
 zoo query --min-vt 0 --max-vt 3 --limit 100
 zoo query --permission "android.permission.BLUETOOTH_SCAN"
 
-zoo download                          # reads JSONL from stdin
-zoo download --pkg "com.whatsapp"     # shortcut (same flags as query)
-zoo download --sha256 ab3f...         # single APK
+zoo download ab3f... cd5e...          # download by hash(es)
 zoo download --jobs 10                # concurrency (max 20)
 zoo download --force                  # re-download even if exists
+                                      # also reads hashes from stdin
 
 zoo list                              # JSONL of downloaded APKs
 zoo verify                            # check downloads table vs files on disk
@@ -79,11 +78,17 @@ zoo verify                            # check downloads table vs files on disk
 - **stderr** — progress bars, status messages, warnings
 - No human-readable table mode
 
-### Pipeline Example
+### Pipeline Examples
 ```bash
-zoo query --market play.google.com \
-  | jq -r 'select(.pkg_name | test("bluetooth"; "i")) | .sha256' \
+# Query → download
+zoo query --market play.google.com --limit 100 \
+  | jq -r '.sha256' \
   | zoo download --jobs 15
+
+# Filter then download
+zoo query --min-vt=5 --after=2024-01-01 --limit=50 \
+  | jq -r 'select(.apk_size < 50000000) | .sha256' \
+  | zoo download --jobs=10
 ```
 
 ## Database Schema
