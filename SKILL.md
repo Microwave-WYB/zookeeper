@@ -34,7 +34,7 @@ zoo query [--pkg=STR] [--sha256=STR] [--market=STR]
 
 | Flag | Description |
 |------|-------------|
-| `--pkg` | Package name, supports `*` wildcards (e.g. `com.google.*`) |
+| `--pkg` | Package name; supports SQL wildcards `%` (any chars) and `_` (single char), e.g. `com.google.%` |
 | `--sha256` | Exact SHA-256 hash lookup |
 | `--market` | Market name, substring match (e.g. `play` for Google Play) |
 | `--after` / `--before` | DEX date range (ISO 8601) |
