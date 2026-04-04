@@ -1,10 +1,13 @@
-.PHONY: build dev run fix check install uninstall clean
+.PHONY: build dev run fix check install uninstall clean deps
 
 BIN := zoo
 ENTRY := src/main.ts
 INSTALL_DIR := $(HOME)/.local/bin
 
-build:
+deps:
+	bun install
+
+build: deps
 	bun build $(ENTRY) --compile --outfile $(BIN)
 
 dev:
