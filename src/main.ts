@@ -141,9 +141,9 @@ const downloadCommand = defineCommand({
     if (process.stdin.isTTY) {
       process.stderr.write(
         "No input. Pass SHA-256 hashes as arguments or pipe to stdin.\n" +
-        "Examples:\n" +
-        "  zoo download ABC123... DEF456...\n" +
-        "  zoo query --pkg=com.whatsapp --limit=5 | jq -r '.sha256' | zoo download\n",
+          "Examples:\n" +
+          "  zoo download ABC123... DEF456...\n" +
+          "  zoo query --pkg=com.whatsapp --limit=5 | jq -r '.sha256' | zoo download\n",
       );
       process.exit(1);
     }

@@ -2,54 +2,12 @@ import { Database } from "bun:sqlite";
 import { createReadStream } from "node:fs";
 import { createGunzip } from "node:zlib";
 import { statSync } from "node:fs";
+import { parse } from "csv-parse";
 
 function formatNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
   return String(n);
-}
-
-/**
- * Parse a CSV line handling quoted fields.
- * Returns array of field strings, or null if malformed.
- */
-function parseCsvLine(line: string, expectedCols: number): string[] | null {
-  if (line.includes(",snaggamea")) return null;
-
-  const fields: string[] = [];
-  let i = 0;
-  let field = "";
-  let inQuote = false;
-
-  while (i < line.length) {
-    const ch = line[i] as string;
-    if (inQuote) {
-      if (ch === '"' && line[i + 1] === '"') {
-        field += '"';
-        i += 2;
-      } else if (ch === '"') {
-        inQuote = false;
-        i++;
-      } else {
-        field += ch;
-        i++;
-      }
-    } else if (ch === '"') {
-      inQuote = true;
-      i++;
-    } else if (ch === ",") {
-      fields.push(field);
-      field = "";
-      i++;
-    } else {
-      field += ch;
-      i++;
-    }
-  }
-  fields.push(field);
-
-  if (fields.length < expectedCols) return null;
-  return fields.slice(0, expectedCols);
 }
 
 export async function importCsv(
@@ -95,7 +53,6 @@ export async function importCsv(
   let rows = 0;
   let skipped = 0;
   let batch: (string | number)[][] = [];
-  let headerSkipped = false;
   let compressedRead = 0;
   const startTime = Date.now();
   let lastReport = 0;
@@ -115,81 +72,65 @@ export async function importCsv(
   await new Promise<void>((resolve, reject) => {
     const input = createReadStream(gzPath);
     const gunzip = createGunzip();
+    const parser = parse({
+      columns: false,
+      skip_empty_lines: true,
+      from_line: 2, // skip header
+      relax_column_count: true,
+    });
 
     input.on("data", (chunk: Buffer) => {
       compressedRead += chunk.length;
     });
 
-    let leftover = "";
+    parser.on("data", (record: string[]) => {
+      if (record.length < numCols) {
+        skipped++;
+        return;
+      }
+      // Skip known malformed entry
+      if (record.includes("snaggamea")) {
+        skipped++;
+        return;
+      }
 
-    gunzip.on("data", (chunk: Buffer) => {
-      const text = leftover + chunk.toString("utf-8");
-      const lines = text.split("\n");
-      leftover = lines.pop() || "";
+      const fields = record.slice(0, numCols);
+      // Convert numeric fields (CSV order: sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets)
+      const row: (string | number)[] = [...fields];
+      row[4] = parseInt(fields[4] ?? "", 10) || 0; // apk_size
+      row[6] = parseInt(fields[6] ?? "", 10) || 0; // vercode
+      row[7] = parseInt(fields[7] ?? "", 10) || 0; // vt_detection
+      row[9] = parseInt(fields[9] ?? "", 10) || 0; // dex_size
 
-      for (const line of lines) {
-        if (!headerSkipped) {
-          headerSkipped = true;
-          continue;
-        }
-        if (line.trim() === "") continue;
+      batch.push(row);
+      rows++;
 
-        const parsed = parseCsvLine(line, numCols);
-        if (!parsed) {
-          skipped++;
-          continue;
-        }
+      if (batch.length >= BATCH_SIZE) {
+        flush(batch);
+        batch = [];
+      }
 
-        // Convert numeric fields (CSV order: sha256, sha1, md5, dex_date, apk_size, pkg_name, vercode, vt_detection, vt_scan_date, dex_size, markets)
-        const row: (string | number)[] = [...parsed];
-        row[4] = parseInt(parsed[4] ?? "", 10) || 0; // apk_size
-        row[6] = parseInt(parsed[6] ?? "", 10) || 0; // vercode
-        row[7] = parseInt(parsed[7] ?? "", 10) || 0; // vt_detection
-        row[9] = parseInt(parsed[9] ?? "", 10) || 0; // dex_size
-
-        batch.push(row);
-        rows++;
-
-        if (batch.length >= BATCH_SIZE) {
-          flush(batch);
-          batch = [];
-        }
-
-        const now = Date.now();
-        if (now - lastReport >= 1000) {
-          const elapsed = (now - startTime) / 1000;
-          const rate = Math.round(rows / elapsed);
-          const pct = Math.round((compressedRead / fileSize) * 100);
-          process.stderr.write(
-            `\rImporting CSV... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`,
-          );
-          lastReport = now;
-        }
+      const now = Date.now();
+      if (now - lastReport >= 1000) {
+        const elapsed = (now - startTime) / 1000;
+        const rate = Math.round(rows / elapsed);
+        const pct = Math.round((compressedRead / fileSize) * 100);
+        process.stderr.write(
+          `\rImporting CSV... ${formatNum(rows)} rows (${pct}%) ${formatNum(rate)} rows/s`,
+        );
+        lastReport = now;
       }
     });
 
-    gunzip.on("end", () => {
-      if (leftover.trim()) {
-        const parsed = parseCsvLine(leftover, numCols);
-        if (parsed) {
-          const row: (string | number)[] = [...parsed];
-          row[4] = parseInt(parsed[4] ?? "", 10) || 0;
-          row[6] = parseInt(parsed[6] ?? "", 10) || 0;
-          row[7] = parseInt(parsed[7] ?? "", 10) || 0;
-          row[9] = parseInt(parsed[9] ?? "", 10) || 0;
-          batch.push(row);
-          rows++;
-        } else {
-          skipped++;
-        }
-      }
+    parser.on("end", () => {
       flush(batch);
       resolve();
     });
 
+    parser.on("error", reject);
     gunzip.on("error", reject);
     input.on("error", reject);
-    input.pipe(gunzip);
+    input.pipe(gunzip).pipe(parser);
   });
 
   db.run("COMMIT");
